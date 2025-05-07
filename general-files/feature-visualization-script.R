@@ -435,7 +435,7 @@ process_merged_files <- function(datadir) {
 
 # Use PubChem and ChatGPT to assist in assining common names instead of complicated chemical UPAC names
 update_annotations_ai_assisted <- function(df) {
-  openai_api_key <- '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'
+  openai_api_key <- # put api key here
   
   # Function to query PubChem and get common names and synonymes
   get_pubchem_name <- function(name, smiles) {
