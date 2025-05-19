@@ -435,7 +435,7 @@ process_merged_files <- function(datadir) {
 
 # Use PubChem and ChatGPT to assist in assining common names instead of complicated chemical UPAC names
 update_annotations_ai_assisted <- function(df) {
-  openai_api_key <- # put api key here
+  openai_api_key <- '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'
   
   # Function to query PubChem and get common names and synonymes
   get_pubchem_name <- function(name, smiles) {
@@ -2472,10 +2472,134 @@ plot_to_pdf_objective_data_overview <- function(resultsdir, all_needed_features,
 }
 
 
-make_statistical_parameter_test <- function(add_info, resultsdir, Group_list, grouping_parameter) {
+
+
+
+stat_group_comparison <- function(data, resultsdir, group_var, variable_list, get_distinct_data = TRUE, name = 'statistical_tests_results') {
+  results <- data.frame(
+    Variable = character(),
+    `Variance Test (p)` = character(),
+    `Test Type` = character(),
+    `Mean (M) \\ Mean (F)` = character(),
+    `t (df)` = character(),
+    `p-value` = character(),
+    `Normality (p)` = character(),
+    Interpretation = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  if (get_distinct_data) {
+    distinct_data <- data %>% distinct(Donor, .keep_all = TRUE)
+  } else {
+    distinct_data <- data
+  }
   
   
-}
+  for (var in variable_list) {
+    df <- distinct_data[, c(var, group_var)]
+    df <- df[complete.cases(df), ]
+    group_levels <- unique(df[[group_var]])
+    
+    if (length(group_levels) != 2) {
+      warning(paste("Skipping", var, "- needs exactly two groups"))
+      next
+    }
+    
+    g1 <- df[df[[group_var]] == group_levels[1], var]
+    g2 <- df[df[[group_var]] == group_levels[2], var]
+    
+    
+    # CHECK IF BOTH g1 and g2 ARE NUMERIC
+    is_numeric <- is.numeric(g1) && is.numeric(g2)
+    
+    if (is_numeric) {
+      # For numerical groups t-test
+      var_p <- tryCatch(var.test(g1, g2)$p.value, error = function(e) NA)
+      var_p_formatted <- ifelse(var_p < 0.001, format(var_p, scientific = TRUE, digits = 2), round(var_p, 3))
+      test_type <- ifelse(!is.na(var_p) && var_p > 0.05, "t-test", "Welch")
+      
+      ttest <- t.test(g1, g2, var.equal = (test_type == "t-test"))
+      t_val <- round(ttest$statistic, 3)
+      df_val <- round(ttest$parameter, 2)
+      t_df <- paste0(t_val, " (", df_val, ")")
+      p_val <- ifelse(ttest$p.value < 0.001, format(ttest$p.value, scientific = TRUE, digits = 2),
+                      format(round(ttest$p.value, 4), nsmall = 4))
+      
+      m1 <- round(mean(g1), 2)
+      m2 <- round(mean(g2), 2)
+      mean_string <- paste0("\\makecell{", m1, " \\\\ ", m2, "}")
+      
+      shap1 <- if (length(g1) >= 3) signif(shapiro.test(g1)$p.value, 3) else NA
+      shap2 <- if (length(g2) >= 3) signif(shapiro.test(g2)$p.value, 3) else NA
+      normality <- paste0("\\makecell{", 
+                          ifelse(!is.na(shap1), paste0(shap1, " (", group_levels[1], ")"), "-"), 
+                          " \\\\ ", 
+                          ifelse(!is.na(shap2), paste0(shap2, " (", group_levels[2], ")"), "-"), 
+                          "}")
+      if (ttest$p.value < 0.05) {
+        direction <- ifelse(m1 > m2, paste("Higher in", group_levels[1]), paste("Higher in", group_levels[2]))
+      } else {
+        direction <- "No significant difference"
+      }
+      normality_note <- if (all(c(shap1, shap2) > 0.05, na.rm = TRUE)) "Follows normal distribution" else "Non-normal"
+      interpretation <- paste0("\\makecell{", direction, " \\\\ ", normality_note, "}")
+      
+      
+    } else {
+      # For categorical variable, Fisher's Exact Test (2x2) 
+      test_type <- "Fisher"
+      # Build the 2x2 table
+      tbl <- table(df[[var]], df[[group_var]])
+      
+      if (nrow(tbl) != 2 || ncol(tbl) != 2) {
+        warning(paste("Skipping", var, "- Fisher's test needs exactly two levels in both variable and group"))
+        next
+      }
+      
+      fisher <- fisher.test(tbl)
+      var_p_formatted <- "-"
+      t_df <- "-"
+      m1 <- paste0(sum(df[[var]] == rownames(tbl)[1] & df[[group_var]] == group_levels[1]), 
+                   " / ", sum(df[[group_var]] == group_levels[1]))
+      m2 <- paste0(sum(df[[var]] == rownames(tbl)[1] & df[[group_var]] == group_levels[2]), 
+                   " / ", sum(df[[group_var]] == group_levels[2]))
+      mean_string <- paste0("\\makecell{", m1, " \\\\ ", m2, "}")
+      
+      p_val <- ifelse(fisher$p.value < 0.001, format(fisher$p.value, scientific=TRUE, digits=2), 
+                      format(round(fisher$p.value, 4), nsmall=4))
+      normality <- "-"
+      # Interpret "higher" as higher proportion
+      prop1 <- sum(df[[var]] == rownames(tbl)[1] & df[[group_var]] == group_levels[1]) / sum(df[[group_var]] == group_levels[1])
+      prop2 <- sum(df[[var]] == rownames(tbl)[1] & df[[group_var]] == group_levels[2]) / sum(df[[group_var]] == group_levels[2])
+      if (fisher$p.value < 0.05) {
+        direction <- ifelse(prop1 > prop2, paste("More", rownames(tbl)[1], "in", group_levels[1]), 
+                            paste("More", rownames(tbl)[1], "in", group_levels[2]))
+      } else {
+        direction <- "No significant difference"
+      }
+      interpretation <- paste0("\\makecell{", direction, " \\\\ ", "Not tested" , "}")
+    }
+    
+    # Add row
+    results <- rbind(results, data.frame(
+      Variable = var,
+      `Variance Test (p)` = var_p_formatted,
+      `Test Type` = test_type,
+      `Mean (M) \\ Mean (F)` = mean_string,
+      `t (df)` = t_df,
+      `p-value` = p_val,
+      `Normality (p)` = normality,
+      Interpretation = interpretation,
+      stringsAsFactors = FALSE
+    ))
+  }
+    
+    # Write CSV
+    write.csv(results, paste0(resultsdir, name, '.csv'), row.names = FALSE)
+    return(results)
+  }
+
+
 
 
 # Function: Plot Tyrosine to Tryptophane over time
