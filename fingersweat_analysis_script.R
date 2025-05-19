@@ -186,5 +186,31 @@ if (length(add_info) < 2) {
       dev.off()
       
       
+  # get common features between FiS and Plasma
+      common_features <- inner_join(
+         all_needed_features_Plasma,
+         all_needed_features_FiS,
+         by = c("mz", "rt")
+      )
+      
+      common_features$Annotation <- ifelse(
+        common_features$Confidence.x >= common_features$Confidence.y,
+        common_features$Annotation.x,
+        common_features$Annotation.y
+      )
+      
+      nrow(common_features %>% filter(!is.na(Annotation)))
       
       
+      
+  # make statistical tests for grouping parameters
+      Group_list <- c('BMI', 'rel_fatMass', 'abs_fatMass', 'abs_fatFreeMass', 'abs_muscleMass', 'FFMI', 'FMI')
+      grouping_parameter <- 'Sex'
+      stat_test_results <- stat_group_comparison(add_info, resultsdir, grouping_parameter, Group_list)
+      
+      
+      Group_list <- c('Sex', 'Intervention')
+      grouping_parameter <- 'Column'
+      stat_test_results <- stat_group_comparison(add_info %>% filter(Sample.Type == 'Plasma'), resultsdir, grouping_parameter, Group_list, get_distinct_data = FALSE, name = 'column-Plasma-measurment-statistics')
+    
+    
