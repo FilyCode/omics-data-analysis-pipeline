@@ -4202,4 +4202,364 @@ timepoint_comparison_and_clustering <- function(resultsdir, all_needed_features,
 
 
 
+# Michaellis Menten function
+predict_concentration <- function(y, Vmax, Km) {
+  (y * Km) / (Vmax - y)
+}
+
+create_calibration_curves <- function(plasma_standards, add_info, resultsdir, output_pdf = "calibration_curves.pdf") {
+  # Extract standard levels from column names
+  std_levels <- 0:6
+  base_name <- "NutriNeuro_Plasma_S"
+  
+  regression_fits <- NULL
+  
+  # Open PDF device
+  pdf(paste0(resultsdir, output_pdf), width = 7, height = 6)
+  
+  for (i in seq_len(nrow(plasma_standards))) {
+    molecule <- plasma_standards$Molecule.Name[i]
+    measurement_data <- plasma_standards[i, ]
+    
+    # Create concentration vector from add_info
+    known_concentrations <- sapply(std_levels, function(s) {
+      colname <- gsub("-", ".", molecule)
+      colname <- gsub(" ", ".", colname)
+      subset <- add_info %>% filter(grepl(paste0("Plasma_S", s), Sample))
+      unique_val <- unique(subset[[colname]])
+      if (length(unique_val) == 1) unique_val else NA
+    })
+    
+    # Build data frame for matrix triplicates
+    trip_data <- map_df(std_levels, function(s) {
+      reps <- paste0(base_name, s, "_", 1:3)
+      if (all(reps %in% colnames(plasma_standards))) {
+        vals <- as.numeric(measurement_data[reps])
+        data.frame(
+          concentration = known_concentrations[s + 1],
+          mean_intensity = mean(vals, na.rm = TRUE),
+          sd_intensity = sd(vals, na.rm = TRUE),
+          std_level = paste0("S", s)
+        )
+      } else {
+        NULL
+      }
+    })
+    
+    # Get the ohneMatrix data
+    ohne_data <- map_df(std_levels, function(s) {
+      col <- paste0(base_name, s, "_ohneMatrix")
+      if (col %in% colnames(plasma_standards)) {
+        data.frame(
+          concentration = known_concentrations[s + 1],
+          intensity = as.numeric(measurement_data[[col]]),
+          std_level = paste0("S", s)
+        )
+      } else {
+        NULL
+      }
+    })
+    
+    # Linear regression through origin
+    lm_data <- trip_data %>% filter(!is.na(concentration), !is.na(mean_intensity))
+    if (nrow(lm_data) < 2) next
+    
+    nls_fit <- nls(mean_intensity ~ Vmax * concentration / (Km + concentration),
+                   data = lm_data,
+                   start = list(Vmax = max(lm_data$mean_intensity), Km = median(lm_data$concentration)))
+    
+    params <- coef(nls_fit)
+    Vmax <- params["Vmax"]
+    Km <- params["Km"]
+    
+    # Predicted values and R²
+    lm_data$predicted <- predict(nls_fit)
+    rss <- sum((lm_data$mean_intensity - lm_data$predicted)^2)
+    tss <- sum((lm_data$mean_intensity - mean(lm_data$mean_intensity))^2)
+    r2 <- 1 - rss/tss
+    
+    if (is.null(regression_fits)) {
+      regression_fits <- data.frame(Molecule.Name = molecule, Vmax = Vmax, Km = Km)
+      
+    } else {
+      regression_fits <- rbind(regression_fits, c(molecule, Vmax, Km))
+    }
+    
+    # Create a fine grid of concentrations
+    new_conc <- data.frame(concentration = seq(min(lm_data$concentration), max(lm_data$concentration), length.out = 300))
+    
+    # Predict using the nonlinear model
+    new_conc$predicted <- predict(nls_fit, newdata = new_conc)
+    
+    # Plot
+    p <- ggplot() +
+      # With Matrix: blue circles
+      geom_point(data = lm_data, aes(x = concentration, y = mean_intensity, color = "With Matrix", shape = "With Matrix"), size = 3) +
+      geom_errorbar(data = lm_data, aes(x = concentration, ymin = mean_intensity - sd_intensity, ymax = mean_intensity + sd_intensity, color = "With Matrix"), width = 0.05) +
+      
+      # Without Matrix: red triangles
+      geom_point(data = ohne_data, aes(x = concentration, y = intensity, color = "Without Matrix", shape = "Without Matrix"), size = 3) +
+      
+      # Regression curve from nls
+      geom_line(data = new_conc, aes(x = concentration, y = predicted), color = "black") +
+      
+      # Labels
+      labs(
+        title = paste("Calibration Curve -", molecule),
+        x = "Concentration in 1 μL Plasma [μM]",
+        y = "Abundance",
+        color = "Sample Type",
+        shape = "Sample Type"
+      ) +
+      
+      # Custom colors and shapes
+      scale_color_manual(values = c("With Matrix" = "blue", "Without Matrix" = "red")) +
+      scale_shape_manual(values = c("With Matrix" = 16, "Without Matrix" = 17)) +
+      
+      # Regression equation in top-left
+      annotate("text", x = -Inf, y = Inf, hjust = -0.1, vjust = 1.2,
+               label = sprintf("y = %.1f·x / (%.1f + x)\nR² = %.3f", Vmax, Km, r2), size = 5) +
+      
+      # Style
+      theme_minimal() +
+      theme(
+        legend.position.inside = c(0.95, 0.05),  # new way to set inside position (bottom right)
+        legend.justification = c("right", "bottom"),
+        legend.text = element_text(size = 14),       # ⬅️ increase legend text size
+        legend.title = element_text(size = 15),      # ⬅️ increase legend title size
+        plot.title = element_text(size = 18, face = "bold"),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 14)
+      )
+    
+    print(p)
+  }
+  
+  dev.off()
+  return(regression_fits)
+}
+
+
+
+show_light_heavy_ratio <- function(targeted_experiment_data_Plasma, add_info, resultsdir, nr_molecules, output_pdf = "light-to-heavy-ratios.pdf") {
+  # Extract standard levels from column names
+  std_levels <- 0:6
+  base_name <- "NutriNeuro_Plasma_S"
+  
+  # Open PDF device
+  pdf(paste0(resultsdir, output_pdf), width = 7, height = 6)
+  
+  for (i in 1:nr_molecules) {
+    molecule <- targeted_experiment_data_Plasma$Molecule.Name[i]
+    measurement_data <- targeted_experiment_data_Plasma[grep(molecule, targeted_experiment_data_Plasma$Molecule.Name),]
+    measurement_data <- measurement_data[grep(base_name, colnames(measurement_data))]
+    measurement_data <- measurement_data[1,] / measurement_data[2,]
+    
+    # Create concentration vector from add_info
+    known_concentrations <- sapply(std_levels, function(s) {
+      colname <- gsub("-", ".", targeted_experiment_data_Plasma$Molecule.Name[grep(molecule, targeted_experiment_data_Plasma$Molecule.Name)][2])
+      colname <- gsub(" ", ".", colname)
+      subset <- add_info %>% filter(grepl(paste0("Plasma_S", s), Sample))
+      unique_val <- unique(subset[[colname]])
+      if (length(unique_val) == 1) unique_val else NA
+    })
+    
+    # Build data frame for matrix triplicates
+    trip_data <- map_df(std_levels, function(s) {
+      reps <- paste0(base_name, s, "_", 1:3)
+      if (all(reps %in% colnames(targeted_experiment_data_Plasma))) {
+        vals <- as.numeric(measurement_data[reps])
+        data.frame(
+          concentration = known_concentrations[s + 1],
+          mean_intensity = mean(vals, na.rm = TRUE),
+          sd_intensity = sd(vals, na.rm = TRUE),
+          std_level = paste0("S", s)
+        )
+      } else {
+        NULL
+      }
+    })
+    
+    
+    # Linear regression through origin
+    lm_data <- trip_data %>% filter(!is.na(concentration), !is.na(mean_intensity))
+    if (nrow(lm_data) < 2) next
+    
+    # Plot
+    p <- ggplot() +
+      # With Matrix: blue circles
+      geom_point(data = lm_data, aes(x = concentration, y = mean_intensity, color = "With Matrix", shape = "With Matrix"), size = 3) +
+      geom_errorbar(data = lm_data, aes(x = concentration, ymin = mean_intensity - sd_intensity, ymax = mean_intensity + sd_intensity, color = "With Matrix"), width = 0.05) +
+      
+     # Labels
+      labs(
+        title = paste("Ratio -", molecule),
+        x = "Concentration (heavy) in 1 μL Plasma [μM]",
+        y = "Abundance Ratio (light/heavy)",
+        color = "Sample Type",
+        shape = "Sample Type"
+      ) +
+      
+      # Custom colors and shapes
+      scale_color_manual(values = c("With Matrix" = "blue")) +
+      scale_shape_manual(values = c("With Matrix" = 16)) +
+      
+     # Style
+      theme_minimal() +
+      theme(
+        legend.position.inside = c(0.95, 0.05),  # new way to set inside position (bottom right)
+        legend.justification = c("right", "bottom"),
+        legend.text = element_text(size = 14),       # ⬅️ increase legend text size
+        legend.title = element_text(size = 15),      # ⬅️ increase legend title size
+        plot.title = element_text(size = 18, face = "bold"),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 14)
+      )
+    
+    print(p)
+  }
+  
+  dev.off()
+}
+
+
+
+
+aminoacid_overview <- function(targeted_experiment_data_Plasma, resultsdir, nr_molecules, output_pdf = "aminoacid-overview.pdf") {
+  base_name <- "NutriNeuro_Plasma_quant_"
+  
+  # Open PDF device
+  pdf(paste0(resultsdir, output_pdf), width = 7, height = 6)
+  
+  measurement_data <- as.data.frame(t(targeted_experiment_data_Plasma[grep(base_name, colnames(targeted_experiment_data_Plasma))]))
+  colnames(measurement_data) <- targeted_experiment_data_Plasma$Molecule.Name
+  
+  
+  # Reshape to long format, creating "Molecule" and "Abundance" columns
+    df_long <- measurement_data %>%
+    pivot_longer(
+      cols = everything(),
+      names_to = "Molecule",
+      values_to = "Abundance"
+    ) %>%
+    mutate(
+      Group = ifelse(grepl("-heavy$", Molecule), "Heavy molecules", "Light molecules"),
+      Color = ifelse(Group == "Light molecules", "green", "blue"),
+      # Remove -heavy from the molecule names for better axis labeling
+      Molecule = sub("-heavy$", "", Molecule)
+    )
+  
+  # For coloring based on group
+  group_colors <- c("Light molecules" = "green", "Heavy molecules" = "blue")
+  
+  # Plot boxplot
+  p <- ggplot(df_long, aes(x = Molecule, y = Abundance, fill = Group)) +
+    geom_boxplot(outlier.shape = NA) +
+    scale_fill_manual(values = group_colors) +
+    labs(x = "Molecules", y = "Abundance", fill = "Molecule Type") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+    )
+  
+  print(p)
+  
+  # Get CV for each heavy molecule
+  measurement_data <- targeted_experiment_data_Plasma[(nr_molecules+1):nrow(targeted_experiment_data_Plasma), c(grep("rt", colnames(targeted_experiment_data_Plasma)),grep(base_name, colnames(targeted_experiment_data_Plasma)), ncol(targeted_experiment_data_Plasma))]
+  
+  sample_cols <- 2:(ncol(measurement_data) - 1) # rt and Molecule.Name columns are excluded
+  
+  # Calculate CV for each row
+  data_cv <- measurement_data %>%
+    rowwise() %>%
+    mutate(
+      CV = (sd(c_across(all_of(sample_cols)), na.rm = TRUE) / mean(c_across(all_of(sample_cols)), na.rm = TRUE)) * 100
+    ) %>%
+    ungroup()
+  
+  # Scatter plot: RT vs. CV, label points by Molecule.Name
+  p <- ggplot(data_cv, aes(x = rt, y = CV, label = Molecule.Name)) +
+    geom_point() +
+    geom_text_repel(
+      size = 3,      # label text size
+      segment.color = "grey50", # connector color
+      box.padding   = 0.3,      # space around labels
+      point.padding = 0.2,      # space between point & label
+      max.overlaps  = Inf       # show all (or set a number to limit)
+    ) +    labs(x = "Retention Time [min]", y = "CV [%]", title = "CV per heavy Molecule across Samples") +
+    theme_minimal()
+  
+  print(p)
+  
+  dev.off()
+}
+
+
+
+
+get_quantitative_aminoacid_concentrations <- function(targeted_experiment_data_Plasma, add_info, resultsdir, nr_molecules, output_file = "quantitative-aminoacid-concentrations.csv") {
+ base_name <- "NutriNeuro_Plasma_quant_"
+
+ # Create concentration vector from add_info
+  known_concentrations <- add_info[grep(paste(gsub("-", ".", base_name), collapse = "|"), add_info$Sample)[1], colnames(add_info) %in% gsub(" ", ".", gsub("-", ".", targeted_experiment_data_Plasma$Molecule.Name)), drop = FALSE] 
+  measurement_data <- targeted_experiment_data_Plasma[c(grep(base_name, colnames(targeted_experiment_data_Plasma)), ncol(targeted_experiment_data_Plasma))]
+  
+  # Prepare long format for easier operations
+  measurement_long <- measurement_data %>%
+    pivot_longer(
+      -Molecule.Name,
+      names_to = "Sample",
+      values_to = "Intensity"
+    )
+  
+  # Separate heavies and lights
+  # Identify all heavies and lights by Molecule.Name (e.g., Alanine & Alanine-heavy)
+  lights <- measurement_data$Molecule.Name[!str_detect(measurement_data$Molecule.Name, "-heavy$")]
+  heavies <- paste0(lights, "-heavy")
+  
+  # Prepare tidy data frames for each (light and heavy)
+  measurement_light <- measurement_long %>%
+    filter(Molecule.Name %in% lights) %>%
+    rename(Intensity = "Light")
+  
+  measurement_heavy <- measurement_long %>%
+    filter(Molecule.Name %in% heavies) %>%
+    mutate(Molecule.Name = str_remove(Molecule.Name, "-heavy$")) %>% # Standardize name to match light
+    rename(Intensity = "Heavy")
+  
+  
+  # Merge light/heavy pairs for each sample and metabolite
+  measurement_wide <- measurement_light %>%
+    left_join(measurement_heavy, by = c("Sample", "Molecule.Name"))
+  
+  # Add heavy concentration information (from known_concentrations)
+  # Make sure names line up (e.g., Alanine-heavy is column in known_concentrations)
+  get_heavy_conc <- function(mol) {
+    col_heavy <- paste0(str_replace_all(mol, " ", "."), ".heavy")
+    as.numeric(known_concentrations[[col_heavy]])
+  }
+  measurement_wide <- measurement_wide %>%
+    mutate(
+      Heavy_Concentration_uM = sapply(Molecule.Name, get_heavy_conc)
+    )
+  
+  # Quantification formula: [light] = [heavy_spiked] * (light_intensity / heavy_intensity)
+  measurement_wide <- measurement_wide %>%
+    mutate(
+      Quant_Concentration_uM = Heavy_Concentration_uM * (Light / Heavy)
+    )
+  
+  # Reshape to wide "results" table: samples in columns, molecule rows
+  results_wide <- measurement_wide %>%
+    mutate(
+      Quant_Concentration_uM = round(Quant_Concentration_uM, 2)
+    ) %>%
+    select(Molecule.Name, Sample, Quant_Concentration_uM) %>%
+    pivot_wider(names_from = Sample, values_from = Quant_Concentration_uM)
+  
+  write.csv(results_wide, paste0(resultsdir, output_file))
+  
+  # Output results_wide for further analysis and plotting
+  return(results_wide)
+}
 
