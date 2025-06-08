@@ -3182,7 +3182,7 @@ replace_na_and_Inf <- function(x) {
       )
       
       # Ensure all values are positive for log2 transformation
-      min_value <- min(merged_data[-seq_along(merge_cols)])
+      min_value <- min(merged_data[-seq_along(merge_cols)], na.rm = TRUE)
       if (min_value <= 0) {
         merged_data[-seq_along(merge_cols)] <- merged_data[-seq_along(merge_cols)] + abs(min_value) + 0.1
       }

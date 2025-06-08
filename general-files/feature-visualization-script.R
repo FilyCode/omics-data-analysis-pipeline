@@ -3456,6 +3456,254 @@ plot_to_pdf_Tyr_Trp_to_LNAA <- function(resultsdir, targeted_experiment_data, ad
 
 
 
+# Function: Plot amino acid ratios and individual values over time, stratified by groups
+plot_to_pdf_Tyr_Trp_to_LNAA_quant <- function(resultsdir, quantitive_AA, add_info, Group_list) {
+  
+  Donors <- unique(add_info$Donor)
+  amino_acids <- c("Phenylalanine", "Tyrosine", "Tryptophan", "Leucine", "Isoleucine", "Valine", "Methionine", "Histidine", "Threonine")
+  ratios <- c("Tyr_to_LNAA_excl_Tyr", "Trp_to_LNAA_excl_Trp", "Tyr_Trp_to_LNAA_excl_both")
+  
+  # Filter for required amino acids
+  needed_data <- quantitive_AA[grepl(paste0("(", paste(amino_acids, collapse = "|"), ")$"), quantitive_AA$Molecule.Name, ignore.case = TRUE), ]
+  needed_data$Molecule.Name <- sub("^DL-", "", needed_data$Molecule.Name) # Remove "DL-" if present
+  rownames(needed_data) <- needed_data$Molecule.Name
+  needed_data <- t(needed_data)
+  needed_data <- as.data.frame(needed_data)
+  needed_data <- needed_data[grep("NutriNeuro", colnames(quantitive_AA)), ]
+  
+  # Convert amino acid values to numeric
+  for (aa in amino_acids) {
+    needed_data[[aa]] <- as.numeric(needed_data[[aa]])
+  }
+  
+  # Calculate ratios
+  needed_data$LNAA_sum_excl_Tyr <- rowSums(needed_data[, amino_acids[!amino_acids %in% "Tyrosine"]], na.rm = TRUE)
+  needed_data$Tyr_to_LNAA_excl_Tyr <- needed_data$Tyrosine / needed_data$LNAA_sum_excl_Tyr
+  needed_data$LNAA_sum_excl_Trp <- rowSums(needed_data[, amino_acids[!amino_acids %in% "Tryptophan"]], na.rm = TRUE)
+  needed_data$Trp_to_LNAA_excl_Trp <- needed_data$Tryptophan / needed_data$LNAA_sum_excl_Trp
+  needed_data$LNAA_sum_excl_Tyr_Trp <- rowSums(needed_data[, amino_acids[!amino_acids %in% c("Tyrosine", "Tryptophan")]], na.rm = TRUE)
+  needed_data$Tyr_Trp_to_LNAA_excl_both <- (needed_data$Tyrosine + needed_data$Tryptophan) / needed_data$LNAA_sum_excl_Tyr_Trp
+  
+  needed_data$Sample <- rownames(needed_data)
+  
+  # Add/create additional information
+  merged_data <- merge(needed_data, add_info, by.x = "Sample", by.y = "Sample")
+  merged_data <- merged_data %>%   
+    group_by(Donor, Intervention) %>%
+    arrange(Timepoint) %>%
+    mutate(across(all_of(amino_acids), list(FC = ~. / lag(.)), .names = "FC_{col}")) %>%
+    ungroup()
+  
+  write.csv(needed_data, paste0(resultsdir, "LNAA_data_and_ratios.csv"))
+  write.csv(merged_data, paste0(resultsdir, "LNAA_data_and_ratios_with_metadata.csv"))
+  
+  
+  # Set up PDF device
+  pdf(file = paste0(resultsdir, "Tyrosine_and_Tryptophan_to_LNAA_comparison_plots.pdf"), width = 24, height = 5 * (length(Donors) %/% 4 + 1))
+  
+  # Stratified plots by group
+  plot_list2 <- list()
+  for (Group in Group_list) {
+    merged_data[[Group]] <- as.factor(merged_data[[Group]])
+    
+    # Calculate statistics
+    summary_data <- merged_data %>%
+      group_by(Timepoint, !!sym(Group)) %>%
+      summarise(across(c(Tyr_to_LNAA_excl_Tyr, Trp_to_LNAA_excl_Trp, Tyr_Trp_to_LNAA_excl_both), list(Median = ~median(., na.rm = TRUE), SD = ~sd(., na.rm = TRUE))))
+    
+    # Loop over each ratio and create plots
+    for (ratio in ratios) {
+      plot <- ggplot(summary_data, aes(x = Timepoint , y = !!sym(paste0(ratio, "_Median")), color = !!sym(Group))) +
+        geom_point(size = 4) +
+        geom_errorbar(aes(ymin = !!sym(paste0(ratio, "_Median")) - !!sym(paste0(ratio, "_SD")), 
+                          ymax = !!sym(paste0(ratio, "_Median")) + !!sym(paste0(ratio, "_SD"))), width = 0.2) +
+        geom_line() + 
+        labs(
+          x = "Time Point",
+          y = "Ratio",
+          title = paste(ratio, "over Time by", Group)
+        ) +
+        theme_minimal() +
+        theme(
+          axis.title = element_text(size = 14),   # axis labels
+          axis.text = element_text(size = 12)    # tick labels
+        )
+      
+      plot_list2[[length(plot_list2) + 1]] <- plot
+    }
+    plot_list2[[length(plot_list2) + 1]] <- ggplot()
+  }
+  
+  
+  if (length(Group_list) > 1) {
+    merged_data[[Group_list[[1]]]] <- as.factor(merged_data[[Group_list[[1]]]])
+    merged_data[[Group_list[[2]]]] <- as.factor(merged_data[[Group_list[[2]]]])
+    
+    summary_data <- merged_data %>%
+      group_by(Timepoint, !!sym(Group_list[[1]]), !!sym(Group_list[[2]])) %>%
+      summarise(across(ratios, list(Median = ~median(., na.rm = TRUE), SD = ~sd(., na.rm = TRUE))))
+    
+    for (ratio in ratios) {
+      plot <- ggplot(summary_data, aes(x = Timepoint , y = !!sym(paste0(ratio, "_Median")), color = !!sym(Group_list[[1]]), linetype = !!sym(Group_list[[2]]))) +
+        geom_point(size = 4) +
+        geom_errorbar(aes(ymin = !!sym(paste0(ratio, "_Median")) - !!sym(paste0(ratio, "_SD")), 
+                          ymax = !!sym(paste0(ratio, "_Median")) + !!sym(paste0(ratio, "_SD"))), width = 0.2) +
+        geom_line() + 
+        labs(
+          x = "Time Point",
+          y = "Ratio",
+          title = paste(ratio, "over Time by", Group_list[[1]], "and", Group_list[[2]])
+        ) +
+        theme_minimal() +
+        theme(
+          axis.title = element_text(size = 14),   # axis labels
+          axis.text = element_text(size = 12)    # tick labels
+        )
+      
+      plot_list2[[length(plot_list2) + 1]] <- plot
+    }
+    plot_list2[[length(plot_list2) + 1]] <- ggplot()
+    
+    # Additional plots for ratios, shows each donor and the mean for groups
+    for (ration in ratios) {
+      for (Group in unique(merged_data[[Group_list[[1]]]])) {
+        for (Subgroup in unique(merged_data[[Group_list[[2]]]])) {
+          filtered_data <- merged_data %>%
+            filter(!!sym(Group_list[[1]]) == Group) %>%
+            filter(!!sym(Group_list[[2]]) == Subgroup)
+          
+          # Summary statistics for each ratio
+          summary_data <- filtered_data %>%
+            group_by(Timepoint) %>%
+            summarise(Median = median(get(ratio), na.rm = TRUE),
+                      SD = sd(get(ratio), na.rm = TRUE))
+          
+          # Plot each ratio
+          plot_ratio <- ggplot() +
+            geom_line(data = filtered_data, aes(x = Timepoint , y = get(ratio), group = Donor), color = "gray", alpha = 0.5, linewidth = 0.5) +
+            geom_line(data = summary_data, aes(x = Timepoint , y = Median), color = "blue", linewidth = 1) +
+            labs(
+              x = "Time Point",
+              y = "Ratio",
+              title = paste(ratio, "over Time by", Group, Subgroup)
+            ) +
+            theme_minimal() +
+            theme(
+              axis.title = element_text(size = 14),   # axis labels
+              axis.text = element_text(size = 12)    # tick labels
+            )
+          
+          plot_list2[[length(plot_list2) + 1]] <- plot_ratio
+        }
+      }
+    }
+    
+    do.call(grid.arrange, c(plot_list2, ncol = 4)) 
+  }
+  
+  
+  plot_list_aa <- list()
+  # Plot each amino acid stratified over groups
+  if (length(Group_list) > 1) {
+    for (aa in amino_acids) {
+      for (Group in unique(merged_data[[Group_list[[1]]]])) {
+        for (Subgroup in unique(merged_data[[Group_list[[2]]]])) {
+          filtered_data <- merged_data %>%
+            filter(!!sym(Group_list[[1]]) == Group) %>%
+            filter(!!sym(Group_list[[2]]) == Subgroup)
+          
+          # Summary statistics for each amino acid
+          summary_data <- filtered_data %>%
+            group_by(Timepoint) %>%
+            summarise(Median = median(get(paste0(aa)), na.rm = TRUE),
+                      SD = sd(get(paste0(aa)), na.rm = TRUE))
+          
+          # Plot each amino acid
+          plot_combined_aa <- ggplot() +
+            geom_line(data = filtered_data, aes(x = Timepoint , y = !!sym(paste0(aa)), group = Donor), color = "gray", alpha = 1, linewidth = 0.5) +
+            geom_line(data = summary_data, aes(x = Timepoint , y = Median), color = "blue", linewidth = 1) +
+            labs(
+              x = "Time Point",
+              y = "Concentration in 1 μL Plasma [μM]",
+              title = paste(aa, "over Time by", Group, Subgroup)
+            ) +
+            theme_minimal() +
+            theme(
+              axis.title = element_text(size = 14),   # axis labels
+              axis.text = element_text(size = 12)    # tick labels
+            )
+          
+          plot_list_aa[[length(plot_list_aa) + 1]] <- plot_combined_aa
+        }
+      }
+    }
+    do.call(grid.arrange, c(plot_list_aa, ncol = 4))
+  }
+  
+  
+  
+  # Fold change plots for each amino acid
+  plot_list_fc <- list()
+  for (aa in amino_acids) {
+    for (Group in Group_list) {
+      merged_data[[Group]] <- as.factor(merged_data[[Group]])
+      
+      summary_data <- merged_data %>%
+        group_by(Timepoint, !!sym(Group)) %>%
+        summarise(Median_FC = median(get(paste0("FC_", aa)), na.rm = TRUE),
+                  SD_FC = sd(get(paste0("FC_", aa)), na.rm = TRUE))
+      
+      plot <- ggplot(summary_data, aes(x = Timepoint , y = Median_FC, color = !!sym(Group))) +
+        geom_point(size = 4) +
+        geom_errorbar(aes(ymin = Median_FC - SD_FC, ymax = Median_FC + SD_FC), width = 0.2) +
+        geom_line() + 
+        labs(
+          x = "Time Point",
+          y = "Fold Change",
+          title = paste(aa, "Fold Change over Time by", Group)
+        ) +
+        theme_minimal() +
+        theme(
+          axis.title = element_text(size = 14),   # axis labels
+          axis.text = element_text(size = 12)    # tick labels
+        )
+      
+      plot_list_fc[[length(plot_list_fc) + 1]] <- plot
+    }
+  }
+  
+  do.call(grid.arrange, c(plot_list_fc, ncol = 2))
+  
+  # Plot for each donor
+  plot_list <- list()
+  for (donor in Donors) {
+    filtered_data <- merged_data %>% filter(Donor == donor)
+    
+    plot <- ggplot(filtered_data, aes(x = Timepoint , linetype = !!sym(Group_list[[1]]))) + 
+      geom_line(aes(y = Tyr_to_LNAA_excl_Tyr, color = "Tyr to LNAAs excl. Tyr")) +
+      geom_line(aes(y = Trp_to_LNAA_excl_Trp, color = "Trp to LNAAs excl. Trp"))+
+      geom_line(aes(y = Tyr_Trp_to_LNAA_excl_both, color = "Tyr + Trp to LNAAs excl. both")) +
+      geom_point(aes(y = Tyr_to_LNAA_excl_Tyr, color = "Tyr to LNAAs excl. Tyr")) + 
+      geom_point(aes(y = Trp_to_LNAA_excl_Trp, color = "Trp to LNAAs excl. Trp")) +
+      geom_point(aes(y = Tyr_Trp_to_LNAA_excl_both, color = "Tyr + Trp to LNAAs excl. both")) +
+      labs(x = "Time Point", y = "Ratio", title = paste0("Ratios over Time by Intervention  \nDonor ", donor)) +
+      theme_minimal() +
+      theme(
+        axis.title = element_text(size = 14),   # axis labels
+        axis.text = element_text(size = 12)    # tick labels
+      ) +
+      scale_color_manual(values = c("Tyr to LNAAs excl. Tyr" = "blue", "Trp to LNAAs excl. Trp" = "green", "Tyr + Trp to LNAAs excl. both" = "red"))
+    plot_list[[length(plot_list) + 1]] <- plot
+  }
+  
+  do.call(grid.arrange, c(plot_list, ncol = 3))
+  
+  # Close PDF device
+  dev.off()
+}
+
+
+
 
 # Helper Function for Volcano plots
 volcano_plot <- function(fit, data, title = "Volcano Plot", subtitel = "End - Start") {
