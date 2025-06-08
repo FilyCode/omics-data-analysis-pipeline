@@ -47,7 +47,7 @@ if (length(add_info) < 2) {
   
   # Define the molecules to look at from transition list and extract them from the whole data set
   transitionFile <- paste0(tlists, tfile)
-  targeted_experiment_data_FiS <- extract_feature_list_advanced(all_data_FiS, df_ids, transitionFile)
+  targeted_experiment_data_FiS <- extract_feature_list(all_data_FiS, df_ids, transitionFile)
   significant_abundant_features_object_FiS <- get_significant_abundant_features(datadir, exp_data_FiS, info_file_dir, resultsdir_FiS, figuredir, exp, tlists)
   all_needed_features_FiS <- significant_abundant_features_object_FiS$significant_abundant_features
   
@@ -79,6 +79,7 @@ if (length(add_info) < 2) {
       plot_to_pdf_limma_test_results(resultsdir_FiS, all_needed_features_FiS, add_info, Group_list, only_annotated_features = TRUE, adj_p_val = TRUE, nr_ann_features = 10)
       plot_to_pdf_limma_test_results(resultsdir_FiS, all_needed_features_FiS, add_info, Group_list, only_annotated_features = TRUE, adj_p_val = TRUE, Confidence_cutoff = 0.7, nr_ann_features = 10)
       plot_to_pdf_limma_test_results(resultsdir_FiS, all_needed_features_FiS, add_info, Group_list, only_annotated_features = TRUE, adj_p_val = TRUE, Confidence_cutoff = 0.3, nr_ann_features = 10)
+      plot_to_pdf_limma_test_results(resultsdir_FiS, all_needed_features_FiS, add_info, Group_list, only_annotated_features = TRUE, adj_p_val = TRUE, Confidence_cutoff = 0.3, nr_ann_features = 0)
       plot_to_pdf_limma_test_results(resultsdir_FiS, all_needed_features_FiS, add_info, Group_list, only_annotated_features = TRUE, adj_p_val = TRUE, Confidence_cutoff = 0.3, ann_features = ann_feature_list)
       plot_to_pdf_limma_test_results(resultsdir_FiS, all_needed_features_FiS, add_info, Group_list, only_annotated_features = TRUE, adj_p_val = FALSE, nr_ann_features = 10)
       plot_to_pdf_limma_test_results(resultsdir_FiS, all_needed_features_FiS, add_info, Group_list, only_annotated_features = FALSE, adj_p_val = TRUE, nr_ann_features = 10)
@@ -117,7 +118,7 @@ if (length(add_info) < 2) {
       
   # Define the molecules to look at from transition list and extract them from the whole data set
   transitionFile <- paste0(tlists, tfile)
-  targeted_experiment_data_Plasma <- extract_feature_list_advanced(all_data_Plasma, df_ids, transitionFile)
+  targeted_experiment_data_Plasma <- extract_feature_list(all_data_Plasma, df_ids, transitionFile)
   significant_abundant_features_object_Plasma <- get_significant_abundant_features(datadir, exp_data_Plasma, info_file_dir, resultsdir_Plasma, figuredir, exp, tlists)
   all_needed_features_Plasma <- significant_abundant_features_object_Plasma$significant_abundant_features
   
