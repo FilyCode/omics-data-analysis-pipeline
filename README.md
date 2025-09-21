@@ -33,3 +33,6 @@ The initial `.raw` files can be processed into the required feature matrix and S
 Alternatively, the `get_untargeted_annotated_features_from_raw_files.R` script can automate these steps.
 
 Metadata can be generated using the the `create_metadata-file_NutriNeuro.R` script.
+
+## Authorship
+This pipeline and its associated scripts were solely developed by Philipp Trollmann as part of his Master Thesis in Biological Chemistry in the group of Dr. Samuel Meier-Menches and Dr. Christopher Gerner at University of Vienna.
