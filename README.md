@@ -1,11 +1,35 @@
-# omics-data-analysis-pipeline
-This code was used to analyze he NuriNeuro study data including finger sweat and blood plasma LC-MS metabolomics data but can be adapted to any omics dataset.
+# Omics Data Analysis Pipeline
 
-The 'fingersweat_analysis_script.R' file calls all the necessary functions to run the data analysis, statistical tests and visualization.
+This repository contains an R-based pipeline for the analysis of omics datasets. Originally developed for LC-MS metabolomics data from the NutriNeuro study (including finger sweat and blood plasma), it is designed to be adaptable to various omics data types.
 
-The called functions are in the files 'feature-visualization-script.R' and 'MS-data-analysis_functions.R'.
+## Pipeline Components
 
-First the .raw files need to prepared and summarized into a matrix (Samples as columns, features as rows).
-This has been done by converting them into .mzML files, running a mzMine Batch mode, with a subsequent SIRIUS annotation. All this can be either done by hand or by running the 'get_untargeted_annotated_features_from_raw_files.R' script.
-The resulting .csv file (+SIRIUS summary file) is used to run the data analysis.
-Metadata are also need, which can be create with 'create_metadata-file_NutriNeuro.R'.
+The core data analysis, statistical tests, and visualization are orchestrated by:
+
+*   `fingersweat_analysis_script.R`: The main script that calls all necessary functions.
+
+Supporting functions are organized into:
+
+*   `feature-visualization-script.R`: Contains functions for data visualization.
+*   `MS-data-analysis_functions.R`: Houses core functions for MS data analysis.
+
+## Data Preparation
+
+Before running the analysis pipeline, raw omics data files require pre-processing into a feature matrix (Samples as columns, Features as rows) and associated metadata.
+
+### Required Input Files:
+
+1.  **Feature Matrix:** A `.csv` file containing the summarized features (e.g., from LC-MS raw data), accompanied by a SIRIUS summary file for annotation.
+2.  **Metadata File:** A `.csv` file containing sample metadata.
+
+### Pre-processing Workflow:
+
+The initial `.raw` files can be processed into the required feature matrix and SIRIUS annotation files through the following steps:
+
+1.  **Raw to mzML Conversion:** Convert `.raw` files to `.mzML` format.
+2.  **Feature Detection & Quantification:** Run a mzMine Batch mode for feature detection and quantification.
+3.  **SIRIUS Annotation:** Perform SIRIUS annotation on the processed features.
+
+Alternatively, the `get_untargeted_annotated_features_from_raw_files.R` script can automate these steps.
+
+Metadata can be generated using the the `create_metadata-file_NutriNeuro.R` script.
