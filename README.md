@@ -36,3 +36,5 @@ Metadata can be generated using the the `create_metadata-file_NutriNeuro.R` scri
 
 ## Authorship
 This pipeline and its associated scripts were solely developed by Philipp Trollmann as part of his Master Thesis in Biological Chemistry in the group of Dr. Samuel Meier-Menches and Dr. Christopher Gerner at University of Vienna.
+Script used for Master Thesis: "Investigating dietary interventions on the human metabolome using LC/MS for matched plasma and finger sweat samples" (DOI: 10.25365/thesis.78505)
+
